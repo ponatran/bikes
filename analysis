@@ -19,7 +19,7 @@ library(ggplot2)
 
 # Set working directory
 ```{r}
-setwd("C:/Users/ponat/Desktop/DATA/Google Data Analytics Certificate Course/Case Study 1")
+setwd("<DIRECTORY HERE>")
 ```
 
 # Step 1: Upload the data
