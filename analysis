@@ -1,0 +1,289 @@
+---
+title: "Bikeshare Company Analysis"
+author: "Pona Tran"
+date: "February 17, 2022"
+output: html_document
+---
+This report seeks to answer the question:
+How do annual members and casual riders of a bike share program use the bikes differently?
+
+# Data Collection
+Used one year's worth of first-party data collected by the company. Includes bike share data from April 2019 to March 2020.
+
+# Set up the environment
+```{r}
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+```
+
+# Set working directory
+```{r}
+setwd("C:/Users/ponat/Desktop/DATA/Google Data Analytics Certificate Course/Case Study 1")
+```
+
+# Step 1: Upload the data
+```{r}
+q2_2019 <- read_csv("Divvy_Trips_2019_Q2.csv")
+q3_2019 <- read_csv("Divvy_Trips_2019_Q3.csv")
+q4_2019 <- read_csv("Divvy_Trips_2019_Q4.csv")
+q1_2020 <- read_csv("Divvy_Trips_2020_Q1.csv")
+```
+
+
+# Step 2: Wrangle and compile separate data tables into a single data set
+## 2a:
+* Checked colnames() and found column names to be inconsistent.
+* Therefore, renamed all table columns to match q1_2020 as this will be the supposed table design moving forward.
+```{r}
+(q4_2019 <- rename(q4_2019
+                   ,ride_id = trip_id
+                   ,rideable_type = bikeid 
+                   ,started_at = start_time  
+                   ,ended_at = end_time  
+                   ,start_station_name = from_station_name 
+                   ,start_station_id = from_station_id 
+                   ,end_station_name = to_station_name 
+                   ,end_station_id = to_station_id 
+                   ,member_casual = usertype))
+
+(q3_2019 <- rename(q3_2019
+                   ,ride_id = trip_id
+                   ,rideable_type = bikeid
+                   ,started_at = start_time
+                   ,ended_at = end_time
+                   ,start_station_name = from_station_name
+                   ,start_station_id = from_station_id
+                   ,end_station_name = to_station_name
+                   ,end_station_id = to_station_id
+                   ,member_casual = usertype))
+
+(q2_2019 <- rename(q2_2019
+                   ,ride_id = "01 - Rental Details Rental ID"
+                   ,rideable_type = "01 - Rental Details Bike ID"
+                   ,started_at = "01 - Rental Details Local Start Time"
+                   ,ended_at = "01 - Rental Details Local End Time"
+                   ,start_station_name = "03 - Rental Start Station Name"
+                   ,start_station_id = "03 - Rental Start Station ID"
+                   ,end_station_name = "02 - Rental End Station Name"
+                   ,end_station_id = "02 - Rental End Station ID"
+                   ,member_casual = "User Type"))
+```
+
+## 2b: Inspect the data frames to find any data type inconsistencies.
+```{r}
+str(q1_2020)
+str(q4_2019)
+str(q3_2019)
+str(q2_2019)
+```
+
+* Found that there are columns that need to be converted.
+* Converted ride_id and rideable_type to character so they stack correctly.
+```{r}
+q4_2019 <-  mutate(q4_2019, ride_id = as.character(ride_id)
+                   ,rideable_type = as.character(rideable_type)) 
+q3_2019 <-  mutate(q3_2019, ride_id = as.character(ride_id)
+                   ,rideable_type = as.character(rideable_type)) 
+q2_2019 <-  mutate(q2_2019, ride_id = as.character(ride_id)
+                   ,rideable_type = as.character(rideable_type))
+```
+
+## 2c: Stack individual quarter data frames into one big data frame.
+```{r}
+all_trips <- bind_rows(q2_2019, q3_2019, q4_2019, q1_2020)
+```
+
+## 2d: Remove columns that don't have matches in other tables.
+```{r}
+all_trips <- all_trips %>%  
+  select(-c(start_lat, start_lng, end_lat, end_lng, birthyear, gender, "01 - Rental Details Duration In Seconds Uncapped", "05 - Member Details Member Birthday Year", "Member Gender", "tripduration"))
+```
+
+
+# Step 3: Clean and prepare for analysis
+## 3a: Make "member_casual" data consistent to only two types of riders: "member" and "casual".
+To see different values to know what to change:
+```{r}
+table(all_trips$member_casual)
+```
+
+```{r}
+all_trips <-  all_trips %>% 
+  mutate(member_casual = recode(member_casual
+                                ,"Subscriber" = "member"
+                                ,"Customer" = "casual"))
+```
+Looks good!
+
+## 3b: The "started_at" and "ended_at" data needs to be expanded.
+* Extracted date and time components for better analysis.
+```{r}
+all_trips$date <- as.Date(all_trips$started_at) # The default format is yyyy-mm-dd
+all_trips$month <- format(as.Date(all_trips$date), "%m")
+all_trips$day <- format(as.Date(all_trips$date), "%d")
+all_trips$year <- format(as.Date(all_trips$date), "%Y")
+all_trips$day_of_week <- format(as.Date(all_trips$date), "%A")
+```
+
+Check if new columns were added:
+```{r}
+colnames(all_trips)
+```
+Looks good!
+
+## 3c: Calculate ride length.
+```{r}
+all_trips$ride_length <- difftime(all_trips$ended_at,all_trips$started_at)
+```
+This created a new column with time in seconds.
+
+Check data type to make sure it's numeric. If not, change it.
+```{r}
+typeof(all_trips$ride_length)
+```
+
+
+```{r}
+all_trips$ride_length <- as.numeric(as.character(all_trips$ride_length))
+```
+
+Check if it's numeric now:
+```{r}
+is.numeric(all_trips$ride_length)
+```
+It is!
+
+Make sure no ride lengths are less than zero seconds.
+Check:
+```{r}
+table(all_trips$ride_length <= 0)
+```
+223 values appear to be less than zero. Remove them, but first, check the dimensions.
+```{r}
+dim(all_trips)
+```
+
+
+## 3d: Since we are removing data, we must make a v2 of the data frame.
+```{r}
+all_trips_v2 <- all_trips %>% 
+  filter(!ride_length<=0)
+```
+
+Check dimensions:
+```{r}
+dim(all_trips_v2)
+```
+New data frame is down by 223 observations. Perfect.
+
+
+# Step 4: Descriptive analysis
+## 4a: All riders
+```{r}
+summary(all_trips$ride_length)
+```
+
+## 4b: Comparing ride length of members and casual riders: Mean, Median, Max, and Min
+```{r}
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN = mean)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN = median)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN = max)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN = min)
+```
+## 4c: Arrange the days of the week in the right order
+```{r}
+all_trips_v2$day_of_week <- ordered(all_trips_v2$day_of_week, levels=c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+```
+
+## 4d: Find mean ride length per day of week
+```{r}
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual + all_trips_v2$day_of_week, FUN = mean)
+```
+
+## 4e: Analyze ridership data by type and weekday
+```{r}
+all_trips_v2 %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>%  #creates weekday field using wday()
+  group_by(member_casual, weekday) %>%  #groups by usertype and weekday
+  summarize(number_of_rides = n()	 #calculates the number of rides and average duration 
+            ,average_duration = mean(ride_length)) %>% 	#calculates the average duration
+  arrange(member_casual, weekday)	 #sorts
+```
+
+
+# Step 5: Visualizations
+## 5a: Number of Rides per Day of Week
+```{r}
+all_trips_v2 %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarize(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, weekday)  %>% 
+  ggplot(aes(x = weekday, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title="Number of Rides Per Day of Week"
+       ,x="Weekday", y="Number of Rides")
+```
+
+This visualization shows the number of rides taken by both annual members and casual riders for every given day of the week.
+
+### Conclusions:
+* Members take more rides on weekdays and fewer rides during the weekend.
+* Casual riders take more rides during the weekend and fewer rides on weekdays.
+
+## 5b: Average Duration Per Day of Week
+```{r}
+all_trips_v2 %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarize(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, weekday)  %>% 
+  ggplot(aes(x = weekday, y = average_duration, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(title="Average Duration Per Day of Week"
+       ,x="Weekday", y="Average Ride Duration")
+```
+
+This visualization shows the average duration of rides taken by both annual members and casual riders for every given day of the week.
+
+### Conclusions:
+* Members ride for about the same amount of time on weekdays with a slight increase of time on weekends.
+* Casual riders use the bikes for a much longer duration than annual members. There isn't a consistent pattern between weekdays and weekends.
+* Though members take more rides than casual riders, they ride for less time whereas casual riders ride for more time and take fewer rides. This makes sense considering the pricing for casual passes (single ride or full day passes).
+
+## 5c: Number of Rides Per Month
+```{r}
+ggplot(data = all_trips_v2) +
+  geom_bar(mapping=aes(x=month, fill=member_casual), position = "dodge") +
+  labs(title="Number of Rides Per Month"
+       ,x="Month", y="Number of Rides")
+```
+
+This visualization shows the number of rides taken by both annual members and casual riders for every month.
+
+### Conclusions:
+* Both member and casual ridership show a steady increase as the summer months arrive, and a steady decrease as colder weather arrives.
+* For members, ridership decreases between January and March but for casual riders, ridership increases.
+
+## 5d: Average Duration Per Month
+```{r}
+all_trips_v2 %>% 
+  mutate(month = month) %>% 
+  group_by(member_casual, month) %>%
+  summarize(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>%
+  arrange(member_casual, month) %>% 
+  ggplot(aes(x=month, y=average_duration, fill=member_casual)) +
+  geom_col(position="dodge")+
+  labs(title="Average Duration Per Month"
+       ,x="Month", y="Average Duration")
+```
+
+This visualization shows the average duration of rides taken by both annual members and casual riders for every month.
+
+### Conclusions:
+* The duration for members doesn't change much throughout the year with only a bit of an increase in July and August.
+* Surprisingly, though the least number of bikes are taken out by casual riders in January and February, those that do take them use them for the longest time. There may be outliers, or this may be significant.
